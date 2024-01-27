@@ -22,61 +22,61 @@ python -u run.py \
   --train_epochs 20\
 
 
-python -u run.py \
-  --task_name long_term_forecast \
-  --is_training 1 \
-  --root_path ./dataset/ETT-small/ \
-  --data_path ETTh1.csv \
-  --model_id ETTh1_96_192 \
-  --model $model_name \
-  --data ETTh1 \
-  --features M \
-  --seq_len 96 \
-  --label_len 48 \
-  --pred_len 192 \
-  --enc_in 7 \
-  --des 'Exp' \
-  --itr 1 \
-  --lifting_kernel_size 7 \
-  --lifting_levels 1\
-  --train_epochs 20\
+# python -u run.py \
+#   --task_name long_term_forecast \
+#   --is_training 1 \
+#   --root_path ./dataset/ETT-small/ \
+#   --data_path ETTh1.csv \
+#   --model_id ETTh1_96_192 \
+#   --model $model_name \
+#   --data ETTh1 \
+#   --features M \
+#   --seq_len 96 \
+#   --label_len 48 \
+#   --pred_len 192 \
+#   --enc_in 7 \
+#   --des 'Exp' \
+#   --itr 1 \
+#   --lifting_kernel_size 7 \
+#   --lifting_levels 1\
+#   --train_epochs 20\
 
 
-python -u run.py \
-  --task_name long_term_forecast \
-  --is_training 1 \
-  --root_path ./dataset/ETT-small/ \
-  --data_path ETTh1.csv \
-  --model_id ETTh1_96_336 \
-  --model $model_name \
-  --data ETTh1 \
-  --features M \
-  --seq_len 96 \
-  --label_len 48 \
-  --pred_len 336 \
-  --enc_in 7 \
-  --des 'Exp' \
-  --itr 1 \
-  --lifting_kernel_size 7 \
-  --lifting_levels 1\
-  --train_epochs 20\
+# python -u run.py \
+#   --task_name long_term_forecast \
+#   --is_training 1 \
+#   --root_path ./dataset/ETT-small/ \
+#   --data_path ETTh1.csv \
+#   --model_id ETTh1_96_336 \
+#   --model $model_name \
+#   --data ETTh1 \
+#   --features M \
+#   --seq_len 96 \
+#   --label_len 48 \
+#   --pred_len 336 \
+#   --enc_in 7 \
+#   --des 'Exp' \
+#   --itr 1 \
+#   --lifting_kernel_size 7 \
+#   --lifting_levels 1\
+#   --train_epochs 20\
 
 
-python -u run.py \
-  --task_name long_term_forecast \
-  --is_training 1 \
-  --root_path ./dataset/ETT-small/ \
-  --data_path ETTh1.csv \
-  --model_id ETTh1_96_720 \
-  --model $model_name \
-  --data ETTh1 \
-  --features M \
-  --seq_len 96 \
-  --label_len 48 \
-  --pred_len 720 \
-  --enc_in 7 \
-  --des 'Exp' \
-  --itr 1 \
-  --lifting_kernel_size 7 \
-  --lifting_levels 1\
-  --train_epochs 20\
+# python -u run.py \
+#   --task_name long_term_forecast \
+#   --is_training 1 \
+#   --root_path ./dataset/ETT-small/ \
+#   --data_path ETTh1.csv \
+#   --model_id ETTh1_96_720 \
+#   --model $model_name \
+#   --data ETTh1 \
+#   --features M \
+#   --seq_len 96 \
+#   --label_len 48 \
+#   --pred_len 720 \
+#   --enc_in 7 \
+#   --des 'Exp' \
+#   --itr 1 \
+#   --lifting_kernel_size 7 \
+#   --lifting_levels 1\
+#   --train_epochs 20\

@@ -23,17 +23,61 @@ class moving_avg(nn.Module):
         x = self.avg(x)
         return x
 
+import torch
+import torch.nn as nn
+import math
+
+class moving_avg_imputation(nn.Module):
+    """
+    Moving average block modified to ignore zeros in the moving window.
+    """
+    def __init__(self, kernel_size, stride):
+        super(moving_avg_imputation, self).__init__()
+        self.kernel_size = kernel_size
+        self.stride = stride
+
+    def forward(self, x):
+        # Padding on the both ends of time series
+        # x - B, C, L
+        num_channels = x.shape[1]
+        front = x[:, :, 0:1].repeat(1, 1, self.kernel_size - 1 - math.floor((self.kernel_size - 1) // 2))
+        end = x[:, :, -1:].repeat(1, 1, math.floor((self.kernel_size - 1) // 2))
+        x_padded = torch.cat([front, x, end], dim=-1)
+
+        # Create a mask for non-zero elements
+        non_zero_mask = x_padded != 0
+
+        # Calculate sum of non-zero elements in each window
+        window_sum = torch.nn.functional.conv1d(x_padded, 
+                                                weight=torch.ones((1, num_channels, self.kernel_size)).cuda(),
+                                                stride=self.stride)
+
+        # Count non-zero elements in each window
+        window_count = torch.nn.functional.conv1d(non_zero_mask.float(), 
+                                                  weight=torch.ones((1, num_channels, self.kernel_size)).cuda(),
+                                                  stride=self.stride)
+
+        # Avoid division by zero; set count to 1 where there are no non-zero elements
+        window_count = torch.clamp(window_count, min=1)
+
+        # Compute the moving average
+        moving_avg = window_sum / window_count
+        return moving_avg
+
+
 
 class series_decomp(nn.Module):
     """
     Series decomposition block
     """
-    def __init__(self, kernel_size=24, stride=1):
+    def __init__(self, kernel_size=24, stride=1, imputation=False):
         super(series_decomp, self).__init__()
-        self.moving_avg = moving_avg(kernel_size, stride=stride)
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.moving_avg = moving_avg(kernel_size, stride=stride) if not imputation else moving_avg_imputation(self.kernel_size, self.stride)
 
     def forward(self, x):
-        moving_mean = self.moving_avg(x)
+        moving_mean = self.moving_avg(x) 
         res = x - moving_mean
         return res, moving_mean
     
@@ -124,7 +168,7 @@ class Model(nn.Module):
         self.number_levels = configs.lifting_levels
         self.nb_channels_in = configs.enc_in
 
-        self.series_decomp = series_decomp()
+        self.series_decomp = series_decomp(imputation = self.task_name=='imputation')
         self.seasonal_linear = nn.Linear(self.seq_len, self.pred_len)
         self.trend_linear = nn.Linear(self.seq_len, self.pred_len)
         
@@ -222,6 +266,57 @@ class Model(nn.Module):
         x = x + moving_mean_out
         
         return x
+    
+    def imputation(self, x, x_mark_enc, x_dec, x_mark_dec, mask):
+        x = x.permute(0,2,1)
+        mask = mask.permute(0,2,1)
+        x, moving_mean = self.series_decomp(x)
+        # moving_mean = moving_avg_imputation(24, 1)(x)
+        # x = x - moving_mean
+        _, N, L = x.shape
+        
+        means = torch.sum(x, dim=2) / torch.sum(mask == 1, dim=2)
+        means = means.unsqueeze(2).detach()
+        x = x - means
+        stdev = torch.sqrt(torch.sum(x * x, dim=2) /
+                           torch.sum(mask == 1, dim=2) + 1e-5).unsqueeze(2).detach()
+        x /= stdev
+                
+        means_moving_avg = moving_mean.mean(2, keepdim=True).detach()
+        moving_mean = moving_mean - means_moving_avg
+        stdev_moving_avg = torch.sqrt(
+            torch.var(moving_mean, dim=2, keepdim=True, unbiased=False) + 1e-5)
+        moving_mean /= stdev_moving_avg
+        
+        encoded_coefficients = []
+        rs = []
+        # Encoding
+        level = 0
+        for l, l_linear in zip(self.encoder_levels, self.linear_levels):
+            # print("Level", level, "x_shape:", x.shape)
+            x, r, details = l(x)
+            # print("The size of x is", x.size(), "and the size of details is", details.size(), l_linear)
+            # x = l_linear(x)
+            encoded_coefficients.append(details)
+            rs += [r]
+            level += 1
+        
+        # Decoding
+        for dec, l_linear, c_linear in zip(self.decoder_levels, self.linear_levels[::-1], self.coef_linear_levels[::-1]):
+            details = encoded_coefficients.pop()
+            x = l_linear(x)
+            details = c_linear(details)
+            x = dec(x, details)
+            
+        moving_mean_out = self.trend_linear(moving_mean)
+        x = self.seasonal_linear(x)
+        x = x * (stdev[:, :, 0].unsqueeze(2).repeat(1, 1, L))
+        x = x + (means[:, :, 0].unsqueeze(2).repeat(1, 1, L))
+        moving_mean_out = moving_mean_out * (stdev_moving_avg[:, :, 0].unsqueeze(2).repeat(1, 1, L))
+        moving_mean_out = moving_mean_out + (means_moving_avg[:, :, 0].unsqueeze(2).repeat(1, 1, L))
+        
+        x = x + moving_mean_out
+        return x.permute(0, 2, 1)
     
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
