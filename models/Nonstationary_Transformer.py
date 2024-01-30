@@ -49,6 +49,8 @@ class Model(nn.Module):
         self.task_name = configs.task_name
         self.pred_len = configs.pred_len
         self.seq_len = configs.seq_len
+        if self.task_name == 'super_resolution':
+            self.seq_len = self.seq_len // configs.sr_ratio
         self.label_len = configs.label_len
         self.output_attention = configs.output_attention
 
@@ -103,13 +105,13 @@ class Model(nn.Module):
         if self.task_name == 'classification':
             self.act = F.gelu
             self.dropout = nn.Dropout(configs.dropout)
-            self.projection = nn.Linear(configs.d_model * configs.seq_len, configs.num_class)
+            self.projection = nn.Linear(configs.d_model * self.seq_len, configs.num_class)
 
-        self.tau_learner = Projector(enc_in=configs.enc_in, seq_len=configs.seq_len, hidden_dims=configs.p_hidden_dims,
+        self.tau_learner = Projector(enc_in=configs.enc_in, seq_len=self.seq_len, hidden_dims=configs.p_hidden_dims,
                                      hidden_layers=configs.p_hidden_layers, output_dim=1)
-        self.delta_learner = Projector(enc_in=configs.enc_in, seq_len=configs.seq_len,
+        self.delta_learner = Projector(enc_in=configs.enc_in, seq_len=self.seq_len,
                                        hidden_dims=configs.p_hidden_dims, hidden_layers=configs.p_hidden_layers,
-                                       output_dim=configs.seq_len)
+                                       output_dim=self.seq_len)
 
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         x_raw = x_enc.clone().detach()
@@ -216,4 +218,7 @@ class Model(nn.Module):
         if self.task_name == 'classification':
             dec_out = self.classification(x_enc, x_mark_enc)
             return dec_out  # [B, L, D]
+        if self.task_name == 'super_resolution':
+            dec_out = self.super_resolution(x_enc, x_mark_enc, x_dec, x_mark_dec)
+            return dec_out[:, -self.pred_len:, :]
         return None

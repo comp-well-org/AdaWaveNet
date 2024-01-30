@@ -19,6 +19,8 @@ class Model(nn.Module):
         self.pred_len = configs.pred_len
         self.feature_size = configs.enc_in #channels
         self.seq_len = configs.seq_len
+        if self.task_name == 'super_resolution':
+            self.seq_len = self.seq_len // configs.sr_ratio
         self.channel_independence = configs.channel_independence
         self.sparsity_threshold = 0.01
         self.scale = 0.02
@@ -108,10 +110,28 @@ class Model(nn.Module):
         x = self.fc(x.reshape(B, N, -1)).permute(0, 2, 1)
         return x
 
+    def super_resolution(self, x_enc):
+        # x: [Batch, Input length, Channel]
+        B, T, N = x_enc.shape
+        # embedding x: [B, N, T, D]
+        x = self.tokenEmb(x_enc)
+        bias = x
+        # [B, N, T, D]
+        if self.channel_independence == '1':
+            x = self.MLP_channel(x, B, N, T)
+        # [B, N, T, D]
+        x = self.MLP_temporal(x, B, N, T)
+        x = x + bias
+        x = self.fc(x.reshape(B, N, -1)).permute(0, 2, 1)
+        return x
+    
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast' or self.task_name == 'imputation':
             dec_out = self.forecast(x_enc)
             return dec_out[:, -self.pred_len:, :]  # [B, L, D]
+        elif self.task_name == 'super_resolution':
+            dec_out = self.super_resolution(x_enc)
+            return dec_out[:, -self.pred_len:, :]
         else:
             raise ValueError('Only forecast tasks implemented yet')
 
