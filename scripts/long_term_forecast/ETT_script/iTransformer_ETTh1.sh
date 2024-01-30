@@ -1,15 +1,15 @@
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=2
 
-model_name=Nonstationary_Transformer
+model_name=iTransformer
 
 python -u run.py \
   --task_name long_term_forecast \
   --is_training 1 \
-  --root_path ./dataset/traffic/ \
-  --data_path traffic.csv \
-  --model_id traffic_96_96 \
+  --root_path ./dataset/ETT-small/ \
+  --data_path ETTh1.csv \
+  --model_id ETTh1_96_96 \
   --model $model_name \
-  --data custom \
+  --data ETTh1 \
   --features M \
   --seq_len 96 \
   --label_len 48 \
@@ -17,23 +17,24 @@ python -u run.py \
   --e_layers 2 \
   --d_layers 1 \
   --factor 3 \
-  --enc_in 862 \
-  --dec_in 862 \
-  --c_out 862 \
+  --enc_in 7 \
+  --dec_in 7 \
+  --c_out 7 \
+  --d_model 16 \
+  --d_ff 32 \
   --des 'Exp' \
   --itr 1 \
-  --train_epochs 3 \
-  --p_hidden_dims 128 128 \
-  --p_hidden_layers 2
+  --top_k 5 
+
 
 python -u run.py \
   --task_name long_term_forecast \
   --is_training 1 \
-  --root_path ./dataset/traffic/ \
-  --data_path traffic.csv \
-  --model_id traffic_192_192 \
+  --root_path ./dataset/ETT-small/ \
+  --data_path ETTh1.csv \
+  --model_id ETTh1_192_192 \
   --model $model_name \
-  --data custom \
+  --data ETTh1 \
   --features M \
   --seq_len 192 \
   --label_len 48 \
@@ -41,23 +42,24 @@ python -u run.py \
   --e_layers 2 \
   --d_layers 1 \
   --factor 3 \
-  --enc_in 862 \
-  --dec_in 862 \
-  --c_out 862 \
+  --enc_in 7 \
+  --dec_in 7 \
+  --c_out 7 \
+  --d_model 16 \
+  --d_ff 32 \
   --des 'Exp' \
   --itr 1 \
-  --train_epochs 3 \
-  --p_hidden_dims 128 128 \
-  --p_hidden_layers 2
+  --top_k 5
+
 
 python -u run.py \
   --task_name long_term_forecast \
   --is_training 1 \
-  --root_path ./dataset/traffic/ \
-  --data_path traffic.csv \
-  --model_id traffic_336_336 \
+  --root_path ./dataset/ETT-small/ \
+  --data_path ETTh1.csv \
+  --model_id ETTh1_336_336 \
   --model $model_name \
-  --data custom \
+  --data ETTh1 \
   --features M \
   --seq_len 336 \
   --label_len 48 \
@@ -65,23 +67,24 @@ python -u run.py \
   --e_layers 2 \
   --d_layers 1 \
   --factor 3 \
-  --enc_in 862 \
-  --dec_in 862 \
-  --c_out 862 \
+  --enc_in 7 \
+  --dec_in 7 \
+  --c_out 7 \
+  --d_model 16 \
+  --d_ff 32 \
   --des 'Exp' \
   --itr 1 \
-  --train_epochs 3 \
-  --p_hidden_dims 16 16 \
-  --p_hidden_layers 2
+  --top_k 5
+
 
 python -u run.py \
   --task_name long_term_forecast \
   --is_training 1 \
-  --root_path ./dataset/traffic/ \
-  --data_path traffic.csv \
-  --model_id traffic_720_720 \
+  --root_path ./dataset/ETT-small/ \
+  --data_path ETTh1.csv \
+  --model_id ETTh1_720_720 \
   --model $model_name \
-  --data custom \
+  --data ETTh1 \
   --features M \
   --seq_len 720 \
   --label_len 48 \
@@ -89,11 +92,11 @@ python -u run.py \
   --e_layers 2 \
   --d_layers 1 \
   --factor 3 \
-  --enc_in 862 \
-  --dec_in 862 \
-  --c_out 862 \
+  --enc_in 7 \
+  --dec_in 7 \
+  --c_out 7 \
+  --d_model 16 \
+  --d_ff 32 \
   --des 'Exp' \
   --itr 1 \
-  --train_epochs 3 \
-  --p_hidden_dims 128 128 \
-  --p_hidden_layers 2
+  --top_k 5

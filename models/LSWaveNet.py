@@ -33,16 +33,55 @@ class moving_avg(nn.Module):
         return x
 
 
+class moving_avg_imputation(nn.Module):
+    """
+    Moving average block modified to ignore zeros in the moving window.
+    """
+    def __init__(self, kernel_size, stride):
+        super(moving_avg_imputation, self).__init__()
+        self.kernel_size = kernel_size
+        self.stride = stride
+
+    def forward(self, x):
+        # Padding on the both ends of time series
+        # x - B, C, L
+        num_channels = x.shape[1]
+        front = x[:, :, 0:1].repeat(1, 1, self.kernel_size - 1 - math.floor((self.kernel_size - 1) // 2))
+        end = x[:, :, -1:].repeat(1, 1, math.floor((self.kernel_size - 1) // 2))
+        x_padded = torch.cat([front, x, end], dim=-1)
+
+        # Create a mask for non-zero elements
+        non_zero_mask = x_padded != 0
+
+        # Calculate sum of non-zero elements in each window
+        window_sum = torch.nn.functional.conv1d(x_padded, 
+                                                weight=torch.ones((1, num_channels, self.kernel_size)).cuda(),
+                                                stride=self.stride)
+
+        # Count non-zero elements in each window
+        window_count = torch.nn.functional.conv1d(non_zero_mask.float(), 
+                                                  weight=torch.ones((1, num_channels, self.kernel_size)).cuda(),
+                                                  stride=self.stride)
+
+        # Avoid division by zero; set count to 1 where there are no non-zero elements
+        window_count = torch.clamp(window_count, min=1)
+
+        # Compute the moving average
+        moving_avg = window_sum / window_count
+        return moving_avg
+
 class series_decomp(nn.Module):
     """
     Series decomposition block
     """
-    def __init__(self, kernel_size=24, stride=1):
+    def __init__(self, kernel_size=24, stride=1, imputation=False):
         super(series_decomp, self).__init__()
-        self.moving_avg = moving_avg(kernel_size, stride=stride)
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.moving_avg = moving_avg(kernel_size, stride=stride) if not imputation else moving_avg_imputation(self.kernel_size, self.stride)
 
     def forward(self, x):
-        moving_mean = self.moving_avg(x)
+        moving_mean = self.moving_avg(x) 
         res = x - moving_mean
         return res, moving_mean
 
@@ -132,7 +171,7 @@ class Model(nn.Module):
         self.pred_len = configs.pred_len
         self.output_attention = configs.output_attention
         self.kmeans = KMeans(n_clusters=configs.n_clusters)
-        self.series_decomp = series_decomp()
+        self.series_decomp = series_decomp(imputation = self.task_name=='imputation')
         self.rev_seasonal = RevIN(configs.enc_in)
         self.rev_trend = RevIN(configs.enc_in)
         # self.trend_linear = nn.Linear(self.seq_len, self.pred_len)
@@ -149,6 +188,12 @@ class Model(nn.Module):
         self.coef_dec_levels = nn.ModuleList()
         in_planes = configs.enc_in
         input_size = configs.seq_len
+        
+        if self.task_name == "super_resolution":
+            expand_ratio = configs.sr_ratio
+        else:
+            expand_ratio = 1
+        
         for i in range(configs.lifting_levels):
             self.encoder_levels.add_module(
                 'encoder_level_'+str(i),
@@ -159,21 +204,21 @@ class Model(nn.Module):
             self.linear_levels.add_module(
                 'linear_level_'+str(i),
                 nn.Sequential(
-                    nn.Linear(input_size, input_size),
+                    nn.Linear(input_size, input_size * expand_ratio),
                     # nn.Tanh()
                 )
             )
             self.coef_linear_levels.add_module(
                 'linear_level_'+str(i),
                 nn.Sequential(
-                    nn.Linear(input_size, input_size),
+                    nn.Linear(input_size, input_size * expand_ratio),
                     # nn.Tanh()
                 )
             )
             self.coef_dec_levels.add_module(
                 'linear_level_'+str(i),
                 nn.Sequential(
-                    nn.Linear(input_size, input_size),
+                    nn.Linear(input_size, input_size * expand_ratio),
                     # nn.Tanh()
                 )
             )
@@ -214,13 +259,11 @@ class Model(nn.Module):
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
             self.projection = nn.Linear(configs.seq_len, configs.pred_len, bias=True)
         if self.task_name == 'imputation':
-            self.projection = nn.Linear(configs.d_model, configs.seq_len, bias=True)
+            self.projection = nn.Linear(configs.seq_len, configs.seq_len, bias=True)
         if self.task_name == 'anomaly_detection':
-            self.projection = nn.Linear(configs.d_model, configs.seq_len, bias=True)
-        if self.task_name == 'classification':
-            self.act = F.gelu
-            self.dropout = nn.Dropout(configs.dropout)
-            self.projection = nn.Linear(configs.d_model * configs.enc_in, configs.num_class)
+            self.projection = nn.Linear(configs.seq_len, configs.seq_len, bias=True)
+        if self.task_name == 'super_resolution':
+            self.projection = nn.Linear(configs.pred_len, configs.pred_len, bias=True)
 
         self.register_buffer('clusters', None)
 
@@ -281,13 +324,172 @@ class Model(nn.Module):
         return dec_out
 
     def imputation(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask):
-        pass
+        x, moving_mean = self.series_decomp(x_enc.permute(0,2,1))
+        moving_mean = moving_mean.permute(0,2,1)
+        # Normalization from Non-stationary Transformer
+        x_enc = x.permute(0,2,1)
+        means = x_enc.mean(1, keepdim=True).detach()
+        x_enc = x_enc - means
+        stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        x_enc /= stdev
+        _, _, N = x_enc.shape
+
+        moving_mean = self.rev_trend(moving_mean, 'norm')
+        # means_moving_avg = moving_mean.mean(1, keepdim=True).detach()
+        # moving_mean = moving_mean - means_moving_avg
+        # stdev_moving_avg = torch.sqrt(torch.var(moving_mean, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        # moving_mean /= stdev_moving_avg
+
+        x_enc = x_enc.permute(0,2,1)
+        encoded_coefficients = []
+        x_embedding_levels = []
+        coef_embedding_levels = []
+        # Encoding
+        for l, l_linear, c_linear in zip(self.encoder_levels, self.linear_levels, self.coef_linear_levels):
+            # print("Level", level, "x_shape:", x.shape)
+            x_enc, r, details = l(x_enc)
+            # print("The size of x is", x.size(), "and the size of details is", details.size(), l_linear)
+            encoded_coefficients.append(details)
+            coef_embedding_levels.append(c_linear(details))
+            x_embedding_levels.append(l_linear(x_enc))
+        # Embedding
+        x_enc = x_enc.permute(0,2,1)
+        enc_out = self.enc_embedding(x_enc, None)
+        enc_out, attns = self.encoder(enc_out, attn_mask=None)
+        x_dec = self.lowrank_projection(enc_out)
+        # Decoding
+        for dec, x_emb_level, coef_emb_level, c_linear in zip(self.decoder_levels, x_embedding_levels[::-1], coef_embedding_levels[::-1], self.coef_dec_levels[::-1]):
+            details = encoded_coefficients.pop()
+            # x_dec = l_linear(x_dec)
+            # details = c_linear(details)
+            details = coef_emb_level + c_linear(details)
+            x_dec = x_dec + x_emb_level
+            x_dec = dec(x_dec, details)
+        dec_out = self.projection(x_dec).permute(0, 2, 1)[:, :, :N]
+        # De-Normalization from Non-stationary Transformer
+        dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        dec_out = dec_out + (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        
+        moving_mean_out = self.trend_linear(moving_mean.permute(0,2,1), self.clusters).permute(0,2,1)
+        # moving_mean_out = moving_mean_out * (stdev_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        # moving_mean_out = moving_mean_out + (means_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        moving_mean_out = self.rev_trend(moving_mean_out, 'denorm')
+        
+        dec_out = dec_out + moving_mean_out
+        
+        return dec_out
 
     def anomaly_detection(self, x_enc):
-        pass
+        x, moving_mean = self.series_decomp(x_enc.permute(0,2,1))
+        moving_mean = moving_mean.permute(0,2,1)
+        # Normalization from Non-stationary Transformer
+        x_enc = x.permute(0,2,1)
+        means = x_enc.mean(1, keepdim=True).detach()
+        x_enc = x_enc - means
+        stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        x_enc /= stdev
+        _, _, N = x_enc.shape
 
-    def classification(self, x_enc, x_mark_enc):
-        pass
+        moving_mean = self.rev_trend(moving_mean, 'norm')
+        # means_moving_avg = moving_mean.mean(1, keepdim=True).detach()
+        # moving_mean = moving_mean - means_moving_avg
+        # stdev_moving_avg = torch.sqrt(torch.var(moving_mean, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        # moving_mean /= stdev_moving_avg
+
+        x_enc = x_enc.permute(0,2,1)
+        encoded_coefficients = []
+        x_embedding_levels = []
+        coef_embedding_levels = []
+        # Encoding
+        for l, l_linear, c_linear in zip(self.encoder_levels, self.linear_levels, self.coef_linear_levels):
+            # print("Level", level, "x_shape:", x.shape)
+            x_enc, r, details = l(x_enc)
+            # print("The size of x is", x.size(), "and the size of details is", details.size(), l_linear)
+            encoded_coefficients.append(details)
+            coef_embedding_levels.append(c_linear(details))
+            x_embedding_levels.append(l_linear(x_enc))
+        # Embedding
+        x_enc = x_enc.permute(0,2,1)
+        enc_out = self.enc_embedding(x_enc, None)
+        enc_out, attns = self.encoder(enc_out, attn_mask=None)
+        x_dec = self.lowrank_projection(enc_out)
+        # Decoding
+        for dec, x_emb_level, coef_emb_level, c_linear in zip(self.decoder_levels, x_embedding_levels[::-1], coef_embedding_levels[::-1], self.coef_dec_levels[::-1]):
+            details = encoded_coefficients.pop()
+            # x_dec = l_linear(x_dec)
+            # details = c_linear(details)
+            details = coef_emb_level + c_linear(details)
+            x_dec = x_dec + x_emb_level
+            x_dec = dec(x_dec, details)
+        dec_out = self.projection(x_dec).permute(0, 2, 1)[:, :, :N]
+        # De-Normalization from Non-stationary Transformer
+        dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        dec_out = dec_out + (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        
+        moving_mean_out = self.trend_linear(moving_mean.permute(0,2,1), self.clusters).permute(0,2,1)
+        # moving_mean_out = moving_mean_out * (stdev_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        # moving_mean_out = moving_mean_out + (means_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        moving_mean_out = self.rev_trend(moving_mean_out, 'denorm')
+        
+        dec_out = dec_out + moving_mean_out
+        
+        return dec_out
+
+    def super_resolution(self, x_enc, x_mark_enc):
+        x, moving_mean = self.series_decomp(x_enc.permute(0,2,1))
+        moving_mean = moving_mean.permute(0,2,1)
+        # Normalization from Non-stationary Transformer
+        x_enc = x.permute(0,2,1)
+        means = x_enc.mean(1, keepdim=True).detach()
+        x_enc = x_enc - means
+        stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        x_enc /= stdev
+        _, _, N = x_enc.shape
+
+        moving_mean = self.rev_trend(moving_mean, 'norm')
+        # means_moving_avg = moving_mean.mean(1, keepdim=True).detach()
+        # moving_mean = moving_mean - means_moving_avg
+        # stdev_moving_avg = torch.sqrt(torch.var(moving_mean, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        # moving_mean /= stdev_moving_avg
+
+        x_enc = x_enc.permute(0,2,1)
+        encoded_coefficients = []
+        x_embedding_levels = []
+        coef_embedding_levels = []
+        # Encoding
+        for l, l_linear, c_linear in zip(self.encoder_levels, self.linear_levels, self.coef_linear_levels):
+            # print("Level", level, "x_shape:", x.shape)
+            x_enc, r, details = l(x_enc)
+            # print("The size of x is", x.size(), "and the size of details is", details.size(), l_linear)
+            encoded_coefficients.append(details)
+            coef_embedding_levels.append(c_linear(details))
+            x_embedding_levels.append(l_linear(x_enc))
+        # Embedding
+        x_enc = x_enc.permute(0,2,1)
+        enc_out = self.enc_embedding(x_enc, None)
+        enc_out, attns = self.encoder(enc_out, attn_mask=None)
+        x_dec = self.lowrank_projection(enc_out)
+        # Decoding
+        for dec, x_emb_level, coef_emb_level, c_linear in zip(self.decoder_levels, x_embedding_levels[::-1], coef_embedding_levels[::-1], self.coef_dec_levels[::-1]):
+            details = encoded_coefficients.pop()
+            # x_dec = l_linear(x_dec)
+            # details = c_linear(details)
+            details = coef_emb_level + c_linear(details)
+            x_dec = x_dec + x_emb_level
+            x_dec = dec(x_dec, details)
+        dec_out = self.projection(x_dec).permute(0, 2, 1)[:, :, :N]
+        # De-Normalization from Non-stationary Transformer
+        dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        dec_out = dec_out + (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        
+        moving_mean_out = self.trend_linear(moving_mean.permute(0,2,1), self.clusters).permute(0,2,1)
+        # moving_mean_out = moving_mean_out * (stdev_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        # moving_mean_out = moving_mean_out + (means_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        moving_mean_out = self.rev_trend(moving_mean_out, 'denorm')
+        
+        dec_out = dec_out + moving_mean_out
+        
+        return dec_out
 
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
         B, L, C = x_enc.shape

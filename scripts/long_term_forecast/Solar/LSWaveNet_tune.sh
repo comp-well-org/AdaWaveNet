@@ -1,0 +1,165 @@
+export CUDA_VISIBLE_DEVICES=0
+
+model_name=LSWaveNet
+
+  python -u run.py \
+  --task_name long_term_forecast   \
+  --is_training 1 \
+  --root_path ./dataset/Solar/ \
+  --data_path solar_AL.txt \
+  --model_id solar_96_96 \
+  --model $model_name \
+  --data Solar \
+  --features M \
+  --seq_len 96 \
+  --pred_len 96 \
+  --e_layers 2 \
+  --enc_in 137 \
+  --dec_in 137 \
+  --c_out 137 \
+  --des 'Exp' \
+  --d_model 512 \
+  --d_ff 512 \
+  --learning_rate 0.0005 \
+  --itr 1\
+  --lifting_levels 1  \
+  --lifting_kernel_size 7  \
+  --n_cluster 2  \
+  --learning_rate 0.0005  \
+  --batch_size 16 \
+  --adjust_lr True
+
+    python -u run.py \
+  --task_name long_term_forecast   \
+  --is_training 1 \
+  --root_path ./dataset/Solar/ \
+  --data_path solar_AL.txt \
+  --model_id solar_96_96 \
+  --model $model_name \
+  --data Solar \
+  --features M \
+  --seq_len 96 \
+  --pred_len 96 \
+  --e_layers 2 \
+  --enc_in 137 \
+  --dec_in 137 \
+  --c_out 137 \
+  --des 'Exp' \
+  --d_model 512 \
+  --d_ff 512 \
+  --learning_rate 0.0005 \
+  --itr 1\
+  --lifting_levels 1  \
+  --lifting_kernel_size 7  \
+  --n_cluster 3  \
+  --learning_rate 0.0005  \
+  --batch_size 16 \
+  --adjust_lr True
+
+    python -u run.py \
+  --task_name long_term_forecast   \
+  --is_training 1 \
+  --root_path ./dataset/Solar/ \
+  --data_path solar_AL.txt \
+  --model_id solar_96_96 \
+  --model $model_name \
+  --data Solar \
+  --features M \
+  --seq_len 96 \
+  --pred_len 96 \
+  --e_layers 2 \
+  --enc_in 137 \
+  --dec_in 137 \
+  --c_out 137 \
+  --des 'Exp' \
+  --d_model 512 \
+  --d_ff 512 \
+  --learning_rate 0.0005 \
+  --itr 1\
+  --lifting_levels 1  \
+  --lifting_kernel_size 7  \
+  --n_cluster 5  \
+  --learning_rate 0.0005  \
+  --batch_size 16 \
+  --adjust_lr True
+
+    python -u run.py \
+  --task_name long_term_forecast   \
+  --is_training 1 \
+  --root_path ./dataset/Solar/ \
+  --data_path solar_AL.txt \
+  --model_id solar_96_96 \
+  --model $model_name \
+  --data Solar \
+  --features M \
+  --seq_len 96 \
+  --pred_len 96 \
+  --e_layers 2 \
+  --enc_in 137 \
+  --dec_in 137 \
+  --c_out 137 \
+  --des 'Exp' \
+  --d_model 512 \
+  --d_ff 512 \
+  --learning_rate 0.0005 \
+  --itr 1\
+  --lifting_levels 1  \
+  --lifting_kernel_size 7  \
+  --n_cluster 7  \
+  --learning_rate 0.0005  \
+  --batch_size 16 \
+  --adjust_lr True
+
+    python -u run.py \
+  --task_name long_term_forecast   \
+  --is_training 1 \
+  --root_path ./dataset/Solar/ \
+  --data_path solar_AL.txt \
+  --model_id solar_96_96 \
+  --model $model_name \
+  --data Solar \
+  --features M \
+  --seq_len 96 \
+  --pred_len 96 \
+  --e_layers 2 \
+  --enc_in 137 \
+  --dec_in 137 \
+  --c_out 137 \
+  --des 'Exp' \
+  --d_model 512 \
+  --d_ff 512 \
+  --learning_rate 0.0005 \
+  --itr 1\
+  --lifting_levels 1  \
+  --lifting_kernel_size 7  \
+  --n_cluster 9  \
+  --learning_rate 0.0005  \
+  --batch_size 16 \
+  --adjust_lr True
+
+    python -u run.py \
+  --task_name long_term_forecast   \
+  --is_training 1 \
+  --root_path ./dataset/Solar/ \
+  --data_path solar_AL.txt \
+  --model_id solar_96_96 \
+  --model $model_name \
+  --data Solar \
+  --features M \
+  --seq_len 96 \
+  --pred_len 96 \
+  --e_layers 2 \
+  --enc_in 137 \
+  --dec_in 137 \
+  --c_out 137 \
+  --des 'Exp' \
+  --d_model 512 \
+  --d_ff 512 \
+  --learning_rate 0.0005 \
+  --itr 1\
+  --lifting_levels 1  \
+  --lifting_kernel_size 7  \
+  --n_cluster 1  \
+  --learning_rate 0.0005  \
+  --batch_size 8 \
+  --adjust_lr True

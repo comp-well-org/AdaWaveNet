@@ -74,6 +74,7 @@ class KPLayer(nn.Module):
 
     def one_step_forward(self, z, return_rec=False, return_K=False):
         B, input_len, E = z.shape
+        print(input_len)
         assert input_len > 1, 'snapshots number should be larger than 1'
         x, y = z[:, :-1], z[:, 1:]
 

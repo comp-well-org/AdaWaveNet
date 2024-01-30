@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=0
 
 model_name=FiLM
 
@@ -11,7 +11,7 @@ python -u run.py \
   --model $model_name \
   --data custom \
   --features M \
-  --seq_len 720 \
+  --seq_len 96 \
   --label_len 48 \
   --pred_len 96 \
   --e_layers 2 \
@@ -29,11 +29,11 @@ python -u run.py \
   --is_training 1 \
   --root_path ./dataset/traffic/ \
   --data_path traffic.csv \
-  --model_id traffic_96_192 \
+  --model_id traffic_192_192 \
   --model $model_name \
   --data custom \
   --features M \
-  --seq_len 720 \
+  --seq_len 192 \
   --label_len 48 \
   --pred_len 192 \
   --e_layers 2 \
@@ -51,11 +51,11 @@ python -u run.py \
   --is_training 1 \
   --root_path ./dataset/traffic/ \
   --data_path traffic.csv \
-  --model_id traffic_96_336 \
+  --model_id traffic_336_336 \
   --model $model_name \
   --data custom \
   --features M \
-  --seq_len 720 \
+  --seq_len 336 \
   --label_len 48 \
   --pred_len 336 \
   --e_layers 2 \
@@ -73,7 +73,7 @@ python -u run.py \
   --is_training 1 \
   --root_path ./dataset/traffic/ \
   --data_path traffic.csv \
-  --model_id traffic_96_720 \
+  --model_id traffic_720_720 \
   --model $model_name \
   --data custom \
   --features M \

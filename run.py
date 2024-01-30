@@ -36,6 +36,7 @@ if __name__ == '__main__':
     parser.add_argument('--freq', type=str, default='h',
                         help='freq for time features encoding, options:[s:secondly, t:minutely, h:hourly, d:daily, b:business days, w:weekly, m:monthly], you can also use more detailed freq like 15min or 3h')
     parser.add_argument('--checkpoints', type=str, default='./checkpoints/', help='location of model checkpoints')
+    parser.add_argument('--adjust_lr', type=bool, default=False, help='use learning rate decay')
 
     # forecasting task
     parser.add_argument('--seq_len', type=int, default=96, help='input sequence length')

@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=4
+export CUDA_VISIBLE_DEVICES=0
 
 model_name=Nonstationary_Transformer
 
@@ -30,11 +30,11 @@ python -u run.py \
   --is_training 1 \
   --root_path ./dataset/exchange_rate/ \
   --data_path exchange_rate.csv \
-  --model_id Exchange_96_192 \
+  --model_id Exchange_192_192 \
   --model $model_name \
   --data custom \
   --features M \
-  --seq_len 96 \
+  --seq_len 192 \
   --label_len 48 \
   --pred_len 192 \
   --e_layers 2 \
@@ -53,11 +53,11 @@ python -u run.py \
   --is_training 1 \
   --root_path ./dataset/exchange_rate/ \
   --data_path exchange_rate.csv \
-  --model_id Exchange_96_336 \
+  --model_id Exchange_336_336 \
   --model $model_name \
   --data custom \
   --features M \
-  --seq_len 96 \
+  --seq_len 336 \
   --label_len 48 \
   --pred_len 336 \
   --e_layers 2 \
@@ -77,11 +77,11 @@ python -u run.py \
   --is_training 1 \
   --root_path ./dataset/exchange_rate/ \
   --data_path exchange_rate.csv \
-  --model_id Exchange_96_720 \
+  --model_id Exchange_720_720 \
   --model $model_name \
   --data custom \
   --features M \
-  --seq_len 96 \
+  --seq_len 720 \
   --label_len 48 \
   --pred_len 720 \
   --e_layers 2 \
