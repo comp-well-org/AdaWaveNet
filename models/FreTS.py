@@ -125,13 +125,13 @@ class Model(nn.Module):
         x = self.fc(x.reshape(B, N, -1)).permute(0, 2, 1)
         return x
     
-    def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
+    def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask):
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast' or self.task_name == 'imputation':
             dec_out = self.forecast(x_enc)
-            return dec_out[:, -self.pred_len:, :]  # [B, L, D]
+            return dec_out[:, :, :]  # [B, L, D]
         elif self.task_name == 'super_resolution':
             dec_out = self.super_resolution(x_enc)
-            return dec_out[:, -self.pred_len:, :]
+            return dec_out[:, :, :]
         else:
             raise ValueError('Only forecast tasks implemented yet')
 

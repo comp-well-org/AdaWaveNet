@@ -42,7 +42,7 @@ python -u run.py \
   --features M \
   --seq_len 96 \
   --label_len 0 \
-  --pred_len 0 \
+  --pred_len 96 \
   --e_layers 2 \
   --d_layers 1 \
   --factor 3 \
@@ -50,12 +50,13 @@ python -u run.py \
   --dec_in 321 \
   --c_out 321 \
   --batch_size 16 \
-  --d_model 128 \
-  --d_ff 128 \
-  --des 'Exp' \
-  --itr 1 \
-  --top_k 5 \
-  --learning_rate 0.001
+  --d_model 512   \
+  --d_ff 512   \
+  --des 'Exp'   \
+  --itr 1   \
+  --lifting_kernel_size 7   \
+  --lifting_levels 3 \
+  --learning_rate 0.001 
 
 python -u run.py \
   --task_name imputation \
@@ -69,7 +70,7 @@ python -u run.py \
   --features M \
   --seq_len 96 \
   --label_len 0 \
-  --pred_len 0 \
+  --pred_len 96 \
   --e_layers 2 \
   --d_layers 1 \
   --factor 3 \
@@ -96,7 +97,7 @@ python -u run.py \
   --features M \
   --seq_len 96 \
   --label_len 0 \
-  --pred_len 0 \
+  --pred_len 96 \
   --e_layers 2 \
   --d_layers 1 \
   --factor 3 \

@@ -107,12 +107,16 @@ class Exp_Imputation(Exp_Basic):
 
                 batch_x = batch_x.float().to(self.device)
                 batch_x_mark = batch_x_mark.float().to(self.device)
-
-                # random mask
                 B, T, N = batch_x.shape
-                mask = torch.rand((B, T, N)).to(self.device)
-                mask[mask <= self.args.mask_rate] = 0  # masked
-                mask[mask > self.args.mask_rate] = 1  # remained
+                if self.args.mask_type == "random":
+                    mask = torch.rand((B, T, N)).to(self.device)
+                    mask[mask <= self.args.mask_rate] = 0  # masked
+                    mask[mask > self.args.mask_rate] = 1  # remained
+                elif self.args.mask_type == "extended":
+                    mask = torch.ones((B, T, N)).to(self.device)
+                    mask_length = int(self.args.seq_len * self.args.mask_rate)
+                    start_index = int(random.random() * (T - mask_length - 1))
+                    mask[:, start_index: start_index + mask_length, :] = 0
                 inp = batch_x.masked_fill(mask == 0, 0)
 
                 outputs = self.model(inp, batch_x_mark, None, None, mask)
@@ -172,9 +176,15 @@ class Exp_Imputation(Exp_Basic):
 
                 # random mask
                 B, T, N = batch_x.shape
-                mask = torch.rand((B, T, N)).to(self.device)
-                mask[mask <= self.args.mask_rate] = 0  # masked
-                mask[mask > self.args.mask_rate] = 1  # remained
+                if self.args.mask_type == "random":
+                    mask = torch.rand((B, T, N)).to(self.device)
+                    mask[mask <= self.args.mask_rate] = 0  # masked
+                    mask[mask > self.args.mask_rate] = 1  # remained
+                elif self.args.mask_type == "extended":
+                    mask = torch.ones((B, T, N)).to(self.device)
+                    mask_length = int(self.args.seq_len * self.args.mask_rate)
+                    start_index = int(random.random() * (T - mask_length - 1))
+                    mask[:, start_index: start_index + mask_length, :] = 0
                 inp = batch_x.masked_fill(mask == 0, 0)
 
                 # imputation
