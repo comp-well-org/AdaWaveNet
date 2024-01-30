@@ -168,6 +168,8 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.task_name = configs.task_name
         self.seq_len = configs.seq_len
+        if self.task_name == 'super_resolution':
+            self.seq_len = self.seq_len // configs.sr_ratio
         self.pred_len = configs.pred_len
         self.output_attention = configs.output_attention
         self.kmeans = KMeans(n_clusters=configs.n_clusters)
@@ -175,10 +177,10 @@ class Model(nn.Module):
         self.rev_seasonal = RevIN(configs.enc_in)
         self.rev_trend = RevIN(configs.enc_in)
         # self.trend_linear = nn.Linear(self.seq_len, self.pred_len)
-        self.trend_linear = ClusteredLinear(configs.n_clusters, configs.enc_in, configs.seq_len, configs.pred_len)
+        self.trend_linear = ClusteredLinear(configs.n_clusters, configs.enc_in, self.seq_len, configs.pred_len)
         # Embedding
         
-        self.enc_embedding = DataEmbedding_inverted(configs.seq_len // (2 ** configs.lifting_levels), configs.d_model, configs.embed, configs.freq,
+        self.enc_embedding = DataEmbedding_inverted(self.seq_len // (2 ** configs.lifting_levels), configs.d_model, configs.embed, configs.freq,
                                                     configs.dropout)
         
          # Construct the levels recursively (encoder)
@@ -187,7 +189,7 @@ class Model(nn.Module):
         self.coef_linear_levels = nn.ModuleList()
         self.coef_dec_levels = nn.ModuleList()
         in_planes = configs.enc_in
-        input_size = configs.seq_len
+        input_size = self.seq_len
         
         if self.task_name == "super_resolution":
             expand_ratio = configs.sr_ratio
@@ -238,8 +240,11 @@ class Model(nn.Module):
             in_planes //= 1
             input_size *= 2
         
-        self.lowrank_projection = nn.Linear(configs.d_model, configs.seq_len // (2 ** configs.lifting_levels), bias=True)
-        
+        if self.task_name == "super_resolution":
+            self.lowrank_projection = nn.Linear(configs.d_model, self.pred_len // (2 ** configs.lifting_levels), bias=True)
+        else:
+            self.lowrank_projection = nn.Linear(configs.d_model, self.seq_len // (2 ** configs.lifting_levels), bias=True)
+
         # Encoder
         self.encoder = Encoder(
             [
@@ -257,11 +262,11 @@ class Model(nn.Module):
         )
         # Decoder
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
-            self.projection = nn.Linear(configs.seq_len, configs.pred_len, bias=True)
+            self.projection = nn.Linear(self.seq_len, configs.pred_len, bias=True)
         if self.task_name == 'imputation':
-            self.projection = nn.Linear(configs.seq_len, configs.seq_len, bias=True)
+            self.projection = nn.Linear(self.seq_len, self.seq_len, bias=True)
         if self.task_name == 'anomaly_detection':
-            self.projection = nn.Linear(configs.seq_len, configs.seq_len, bias=True)
+            self.projection = nn.Linear(self.seq_len, self.seq_len, bias=True)
         if self.task_name == 'super_resolution':
             self.projection = nn.Linear(configs.pred_len, configs.pred_len, bias=True)
 
@@ -435,7 +440,7 @@ class Model(nn.Module):
         
         return dec_out
 
-    def super_resolution(self, x_enc, x_mark_enc):
+    def super_resolution(self, x_enc):
         x, moving_mean = self.series_decomp(x_enc.permute(0,2,1))
         moving_mean = moving_mean.permute(0,2,1)
         # Normalization from Non-stationary Transformer
@@ -445,7 +450,7 @@ class Model(nn.Module):
         stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
         x_enc /= stdev
         _, _, N = x_enc.shape
-
+        
         moving_mean = self.rev_trend(moving_mean, 'norm')
         # means_moving_avg = moving_mean.mean(1, keepdim=True).detach()
         # moving_mean = moving_mean - means_moving_avg
@@ -458,9 +463,8 @@ class Model(nn.Module):
         coef_embedding_levels = []
         # Encoding
         for l, l_linear, c_linear in zip(self.encoder_levels, self.linear_levels, self.coef_linear_levels):
-            # print("Level", level, "x_shape:", x.shape)
             x_enc, r, details = l(x_enc)
-            # print("The size of x is", x.size(), "and the size of details is", details.size(), l_linear)
+            # print("The size of x is", x_enc.size(), "and the size of details is", details.size(), l_linear)
             encoded_coefficients.append(details)
             coef_embedding_levels.append(c_linear(details))
             x_embedding_levels.append(l_linear(x_enc))
@@ -512,4 +516,7 @@ class Model(nn.Module):
         if self.task_name == 'classification':
             dec_out = self.classification(x_enc, x_mark_enc)
             return dec_out  # [B, N]
+        if self.task_name == 'super_resolution':
+            dec_out = self.super_resolution(x_enc)
+            return dec_out
         return None
