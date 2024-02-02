@@ -183,6 +183,7 @@ class Exp_Imputation(Exp_Basic):
                 elif self.args.mask_type == "extended":
                     mask = torch.ones((B, T, N)).to(self.device)
                     mask_length = int(self.args.seq_len * self.args.mask_rate)
+                    random.seed(i)
                     start_index = int(random.random() * (T - mask_length - 1))
                     mask[:, start_index: start_index + mask_length, :] = 0
                 inp = batch_x.masked_fill(mask == 0, 0)

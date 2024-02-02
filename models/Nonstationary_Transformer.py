@@ -74,7 +74,7 @@ class Model(nn.Module):
             norm_layer=torch.nn.LayerNorm(configs.d_model)
         )
         # Decoder
-        if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
+        if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast' or self.task_name == 'super_resolution':
             self.dec_embedding = DataEmbedding(configs.dec_in, configs.d_model, configs.embed, configs.freq,
                                                configs.dropout)
             self.decoder = Decoder(
@@ -100,6 +100,8 @@ class Model(nn.Module):
             )
         if self.task_name == 'imputation':
             self.projection = nn.Linear(configs.d_model, configs.c_out, bias=True)
+        if self.task_name == 'super_resolution':
+            self.projection = nn.Linear(configs.d_model, configs.c_out, bias=True)
         if self.task_name == 'anomaly_detection':
             self.projection = nn.Linear(configs.d_model, configs.c_out, bias=True)
         if self.task_name == 'classification':
@@ -116,6 +118,30 @@ class Model(nn.Module):
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         x_raw = x_enc.clone().detach()
 
+        # Normalization
+        mean_enc = x_enc.mean(1, keepdim=True).detach()  # B x 1 x E
+        x_enc = x_enc - mean_enc
+        std_enc = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5).detach()  # B x 1 x E
+        x_enc = x_enc / std_enc
+        # B x S x E, B x 1 x E -> B x 1, positive scalar
+        tau = self.tau_learner(x_raw, std_enc).exp()
+        # B x S x E, B x 1 x E -> B x S
+        delta = self.delta_learner(x_raw, mean_enc)
+
+        x_dec_new = torch.cat([x_enc[:, -self.label_len:, :], torch.zeros_like(x_dec[:, -self.pred_len:, :])],
+                              dim=1).to(x_enc.device).clone()
+
+        enc_out = self.enc_embedding(x_enc, x_mark_enc)
+        enc_out, attns = self.encoder(enc_out, attn_mask=None, tau=tau, delta=delta)
+
+        dec_out = self.dec_embedding(x_dec_new, x_mark_dec)
+        dec_out = self.decoder(dec_out, enc_out, x_mask=None, cross_mask=None, tau=tau, delta=delta)
+        dec_out = dec_out * std_enc + mean_enc
+        return dec_out
+    
+    def super_resolution(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
+        x_raw = x_enc.clone().detach()
+        x_mark_enc = x_mark_dec = None
         # Normalization
         mean_enc = x_enc.mean(1, keepdim=True).detach()  # B x 1 x E
         x_enc = x_enc - mean_enc

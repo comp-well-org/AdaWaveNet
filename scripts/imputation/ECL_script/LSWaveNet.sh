@@ -27,8 +27,9 @@ python -u run.py \
   --des 'Exp'   \
   --itr 1   \
   --lifting_kernel_size 7   \
-  --lifting_levels 4 \
-  --learning_rate 0.001 
+  --lifting_levels 1 \
+  --learning_rate 0.001 \
+  --mask_type extended
 
 python -u run.py \
   --task_name imputation \
@@ -78,12 +79,14 @@ python -u run.py \
   --dec_in 321 \
   --c_out 321 \
   --batch_size 16 \
-  --d_model 128 \
-  --d_ff 128 \
-  --des 'Exp' \
-  --itr 1 \
-  --top_k 5 \
-  --learning_rate 0.001
+  --d_model 512   \
+  --d_ff 512   \
+  --des 'Exp'   \
+  --itr 1   \
+  --lifting_kernel_size 7   \
+  --lifting_levels 1 \
+  --learning_rate 0.001 \
+  --mask_type extended
 
 python -u run.py \
   --task_name imputation \

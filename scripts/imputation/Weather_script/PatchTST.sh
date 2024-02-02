@@ -21,7 +21,6 @@ python -u run.py \
   --dec_in 321 \
   --c_out 321 \
   --des 'Exp' \
-  --batch_size 16 \
   --itr 1\
   --mask_rate 0.125 \
   --mask_type extended
@@ -45,7 +44,6 @@ python -u run.py \
   --dec_in 321 \
   --c_out 321 \
   --des 'Exp' \
-  --batch_size 16 \
   --itr 1\
   --mask_rate 0.25 \
   --mask_type extended
@@ -69,7 +67,6 @@ python -u run.py \
   --dec_in 321 \
   --c_out 321 \
   --des 'Exp' \
-  --batch_size 16 \
   --itr 1\
   --mask_rate 0.375 \
   --mask_type extended
@@ -93,7 +90,6 @@ python -u run.py \
   --dec_in 321 \
   --c_out 321 \
   --des 'Exp' \
-  --batch_size 16 \
   --itr 1\
   --mask_rate 0.5 \
   --mask_type extended

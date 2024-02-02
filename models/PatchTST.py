@@ -33,6 +33,8 @@ class Model(nn.Module):
         super().__init__()
         self.task_name = configs.task_name
         self.seq_len = configs.seq_len
+        if self.task_name == 'super_resolution':
+            self.seq_len = configs.seq_len // configs.sr_ratio
         self.pred_len = configs.pred_len
         padding = stride
 
@@ -58,12 +60,12 @@ class Model(nn.Module):
 
         # Prediction Head
         self.head_nf = configs.d_model * \
-                       int((configs.seq_len - patch_len) / stride + 2)
-        if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
+                       int((self.seq_len - patch_len) / stride + 2)
+        if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast' or self.task_name == 'super_resolution':
             self.head = FlattenHead(configs.enc_in, self.head_nf, configs.pred_len,
                                     head_dropout=configs.dropout)
         elif self.task_name == 'imputation' or self.task_name == 'anomaly_detection':
-            self.head = FlattenHead(configs.enc_in, self.head_nf, configs.seq_len,
+            self.head = FlattenHead(configs.enc_in, self.head_nf, self.seq_len,
                                     head_dropout=configs.dropout)
         elif self.task_name == 'classification':
             self.flatten = nn.Flatten(start_dim=-2)
@@ -203,7 +205,7 @@ class Model(nn.Module):
         return output
 
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
-        if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
+        if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast' or self.task_name == 'super_resolution':
             dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec)
             return dec_out[:, -self.pred_len:, :]  # [B, L, D]
         if self.task_name == 'imputation':

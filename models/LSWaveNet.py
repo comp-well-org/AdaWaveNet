@@ -497,6 +497,7 @@ class Model(nn.Module):
 
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
         B, L, C = x_enc.shape
+        # print(x_enc.shape)
         x_cluster = x_enc.permute(2,0,1).view(C, B * L)
         if self.clusters is None:
             clusters = self.kmeans.fit_predict(x_cluster)

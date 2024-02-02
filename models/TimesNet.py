@@ -22,6 +22,8 @@ class TimesBlock(nn.Module):
     def __init__(self, configs):
         super(TimesBlock, self).__init__()
         self.seq_len = configs.seq_len
+        if configs.task_name == 'super_resolution':
+            self.seq_len = self.seq_len // configs.sr_ratio
         self.pred_len = configs.pred_len
         self.k = configs.top_k
         # parameter-efficient design
@@ -36,7 +38,6 @@ class TimesBlock(nn.Module):
     def forward(self, x):
         B, T, N = x.size()
         period_list, period_weight = FFT_for_Period(x, self.k)
-
         res = []
         for i in range(self.k):
             period = period_list[i]
@@ -88,7 +89,7 @@ class Model(nn.Module):
                                            configs.dropout)
         self.layer = configs.e_layers
         self.layer_norm = nn.LayerNorm(configs.d_model)
-        if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
+        if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast' or self.task_name == 'super_resolution':
             self.predict_linear = nn.Linear(
                 self.seq_len, self.pred_len + self.seq_len)
             self.projection = nn.Linear(
@@ -243,6 +244,6 @@ class Model(nn.Module):
             return dec_out  # [B, N]
         if self.task_name == 'super_resolution':
             dec_out = self.super_resolution(
-                x_enc, x_mark_enc, x_dec, x_mark_dec)
+                x_enc, None, x_dec, None)
             return dec_out[:, -self.pred_len:, :]
         return None

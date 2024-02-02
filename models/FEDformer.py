@@ -23,6 +23,8 @@ class Model(nn.Module):
         super(Model, self).__init__()
         self.task_name = configs.task_name
         self.seq_len = configs.seq_len
+        if self.task_name == "super_resolution":
+            self.seq_len = configs.seq_len // configs.sr_ratio
         self.label_len = configs.label_len
         self.pred_len = configs.pred_len
 
@@ -112,7 +114,7 @@ class Model(nn.Module):
         if self.task_name == 'classification':
             self.act = F.gelu
             self.dropout = nn.Dropout(configs.dropout)
-            self.projection = nn.Linear(configs.d_model * configs.seq_len, configs.num_class)
+            self.projection = nn.Linear(configs.d_model * self.seq_len, configs.num_class)
 
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         # decomp init
@@ -122,8 +124,12 @@ class Model(nn.Module):
         trend_init = torch.cat([trend_init[:, -self.label_len:, :], mean], dim=1)
         seasonal_init = F.pad(seasonal_init[:, -self.label_len:, :], (0, 0, 0, self.pred_len))
         # enc
-        enc_out = self.enc_embedding(x_enc, x_mark_enc)
-        dec_out = self.dec_embedding(seasonal_init, x_mark_dec)
+        if self.task_name == 'super_resolution':
+            enc_out = self.enc_embedding(x_enc, None)
+            dec_out = self.dec_embedding(seasonal_init, None)
+        else:
+            enc_out = self.enc_embedding(x_enc, x_mark_enc)
+            dec_out = self.dec_embedding(seasonal_init, x_mark_dec)
         enc_out, attns = self.encoder(enc_out, attn_mask=None)
         # dec
         seasonal_part, trend_part = self.decoder(dec_out, enc_out, x_mask=None, cross_mask=None, trend=trend_init)
@@ -161,7 +167,7 @@ class Model(nn.Module):
         return output
 
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
-        if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
+        if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast' or self.task_name == 'super_resolution':
             dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec)
             return dec_out[:, -self.pred_len:, :]  # [B, L, D]
         if self.task_name == 'imputation':

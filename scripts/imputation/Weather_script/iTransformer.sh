@@ -5,9 +5,9 @@ model_name=iTransformer
 python -u run.py \
   --task_name imputation \
   --is_training 1 \
-  --root_path ./dataset/electricity/ \
-  --data_path electricity.csv \
-  --model_id ECL_mask_0.125 \
+  --root_path ./dataset/weather/ \
+  --data_path weather.csv \
+  --model_id weather_mask_0.125 \
   --mask_rate 0.125 \
   --model $model_name \
   --data custom \
@@ -33,9 +33,9 @@ python -u run.py \
 python -u run.py \
   --task_name imputation \
   --is_training 1 \
-  --root_path ./dataset/electricity/ \
-  --data_path electricity.csv \
-  --model_id ECL_mask_0.25 \
+  --root_path ./dataset/weather/ \
+  --data_path weather.csv \
+  --model_id weather_mask_0.25 \
   --mask_rate 0.25 \
   --model $model_name \
   --data custom \
@@ -61,9 +61,9 @@ python -u run.py \
 python -u run.py \
   --task_name imputation \
   --is_training 1 \
-  --root_path ./dataset/electricity/ \
-  --data_path electricity.csv \
-  --model_id ECL_mask_0.375 \
+  --root_path ./dataset/weather/ \
+  --data_path weather.csv \
+  --model_id weather_mask_0.375 \
   --mask_rate 0.375 \
   --model $model_name \
   --data custom \
@@ -89,9 +89,9 @@ python -u run.py \
 python -u run.py \
   --task_name imputation \
   --is_training 1 \
-  --root_path ./dataset/electricity/ \
-  --data_path electricity.csv \
-  --model_id ECL_mask_0.5 \
+  --root_path ./dataset/weather/ \
+  --data_path weather.csv \
+  --model_id weather_mask_0.5 \
   --mask_rate 0.5 \
   --model $model_name \
   --data custom \
