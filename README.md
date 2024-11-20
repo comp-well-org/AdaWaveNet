@@ -17,7 +17,7 @@ The project requires the following Python packages, which can be installed using
 
 The main entry point for running experiments is the `run.py` script. It supports various command-line arguments to configure the experiments. Here is an example of how to run a long-term forecasting task:
 
-"""
+```
 python -u run.py \
 --task_name long_term_forecast \
 --is_training 1 \
@@ -45,7 +45,7 @@ python -u run.py \
 --n_cluster 4 \
 --learning_rate 0.0005 \
 --batch_size 16
-"""
+```
 
 ## Configuration
 
@@ -73,13 +73,14 @@ The framework includes implementations of various models, such as:
 
 Please refer to the paper for more details.
 
+```
 @article{yu2024adawavenet,
   title={AdaWaveNet: Adaptive Wavelet Network for Time Series Analysis},
   author={Yu, Han and Guo, Peikun and Sano, Akane},
   journal={arXiv preprint arXiv:2405.11124},
   year={2024}
 }
-
+```
 
 ## Acknowledgments
 
