@@ -1,6 +1,6 @@
 export CUDA_VISIBLE_DEVICES=0
 
-model_name=Nonstationary_Transformer
+model_name=AdaWaveNet
 
 python -u run.py \
   --task_name long_term_forecast \
@@ -20,11 +20,14 @@ python -u run.py \
   --enc_in 321 \
   --dec_in 321 \
   --c_out 321 \
-  --des 'Exp' \
-  --itr 1 \
-  --p_hidden_dims 256 256 \
-  --p_hidden_layers 2 \
-  --d_model 2048
+  --d_model 256\
+  --d_ff 256\
+  --batch_size 16\
+  --learning_rate 0.0005\
+  --itr 1\
+  --lifting_levels 3\
+  --lifting_kernel_size 7\
+  --n_cluster=4
 
 python -u run.py \
   --task_name long_term_forecast \
@@ -44,11 +47,14 @@ python -u run.py \
   --enc_in 321 \
   --dec_in 321 \
   --c_out 321 \
-  --des 'Exp' \
-  --itr 1 \
-  --p_hidden_dims 256 256 \
-  --p_hidden_layers 2 \
-  --d_model 2048
+  --d_model 256\
+  --d_ff 256\
+  --batch_size 16\
+  --learning_rate 0.0005\
+  --itr 1\
+  --lifting_levels 3\
+  --lifting_kernel_size 7\
+  --n_cluster=4
 
 python -u run.py \
   --task_name long_term_forecast \
@@ -68,11 +74,14 @@ python -u run.py \
   --enc_in 321 \
   --dec_in 321 \
   --c_out 321 \
-  --des 'Exp' \
-  --itr 1 \
-  --p_hidden_dims 256 256 \
-  --p_hidden_layers 2 \
-  --d_model 2048
+  --d_model 256\
+  --d_ff 256\
+  --batch_size 16\
+  --learning_rate 0.0005\
+  --itr 1\
+  --lifting_levels 3\
+  --lifting_kernel_size 7\
+  --n_cluster=4
 
 python -u run.py \
   --task_name long_term_forecast \
@@ -92,8 +101,11 @@ python -u run.py \
   --enc_in 321 \
   --dec_in 321 \
   --c_out 321 \
-  --des 'Exp' \
-  --itr 1 \
-  --p_hidden_dims 256 256 \
-  --p_hidden_layers 2 \
-  --d_model 2048
+  --d_model 256\
+  --d_ff 256\
+  --batch_size 16\
+  --learning_rate 0.0005\
+  --itr 1\
+  --lifting_levels 3\
+  --lifting_kernel_size 7\
+  --n_cluster=4

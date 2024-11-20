@@ -1,8 +1,17 @@
+import math
 import torch
 import torch.nn as nn
-import math
-
+import torch.nn.functional as F
+from fast_pytorch_kmeans import KMeans
+from layers.Transformer_EncDec import Encoder, EncoderLayer
+from layers.SelfAttention_Family import FullAttention, AttentionLayer
+from layers.Embed import DataEmbedding_inverted
+import numpy as np
 from layers.LiftingScheme import LiftingScheme, InverseLiftingScheme
+from layers.Invertible import RevIN
+
+def normalization(channels: int):
+    return nn.InstanceNorm1d(num_features=channels)
 
 class moving_avg(nn.Module):
     """
@@ -24,47 +33,57 @@ class moving_avg(nn.Module):
         return x
 
 
+class moving_avg_imputation(nn.Module):
+    """
+    Moving average block modified to ignore zeros in the moving window.
+    """
+    def __init__(self, kernel_size, stride):
+        super(moving_avg_imputation, self).__init__()
+        self.kernel_size = kernel_size
+        self.stride = stride
+
+    def forward(self, x):
+        # Padding on the both ends of time series
+        # x - B, C, L
+        num_channels = x.shape[1]
+        front = x[:, :, 0:1].repeat(1, 1, self.kernel_size - 1 - math.floor((self.kernel_size - 1) // 2))
+        end = x[:, :, -1:].repeat(1, 1, math.floor((self.kernel_size - 1) // 2))
+        x_padded = torch.cat([front, x, end], dim=-1)
+
+        # Create a mask for non-zero elements
+        non_zero_mask = x_padded != 0
+
+        # Calculate sum of non-zero elements in each window
+        window_sum = torch.nn.functional.conv1d(x_padded, 
+                                                weight=torch.ones((1, num_channels, self.kernel_size)).cuda(),
+                                                stride=self.stride)
+
+        # Count non-zero elements in each window
+        window_count = torch.nn.functional.conv1d(non_zero_mask.float(), 
+                                                  weight=torch.ones((1, num_channels, self.kernel_size)).cuda(),
+                                                  stride=self.stride)
+
+        # Avoid division by zero; set count to 1 where there are no non-zero elements
+        window_count = torch.clamp(window_count, min=1)
+
+        # Compute the moving average
+        moving_avg = window_sum / window_count
+        return moving_avg
+
 class series_decomp(nn.Module):
     """
     Series decomposition block
     """
-    def __init__(self, kernel_size=24, stride=1):
+    def __init__(self, kernel_size=24, stride=1, imputation=False):
         super(series_decomp, self).__init__()
-        self.moving_avg = moving_avg(kernel_size, stride=stride)
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.moving_avg = moving_avg(kernel_size, stride=stride) if not imputation else moving_avg_imputation(self.kernel_size, self.stride)
 
     def forward(self, x):
-        moving_mean = self.moving_avg(x)
+        moving_mean = self.moving_avg(x) 
         res = x - moving_mean
         return res, moving_mean
-    
-def normalization(channels: int):
-    return nn.InstanceNorm1d(num_features=channels)
-
-def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('Conv') != -1:
-        try:
-            nn.init.xavier_uniform_(m.weight.data)
-            m.bias.data.fill_(0)
-        except AttributeError:
-            print("Skipping initialization of ", classname)
-
-class BottleneckBlock(nn.Module):
-    def __init__(self, in_planes, out_planes):
-        super(BottleneckBlock, self).__init__()
-        # self.bn1 = nn.BatchNorm1d(in_planes)
-        self.relu = nn.ReLU()
-        # This disable the conv if compression rate is equal to 1
-        self.disable_conv = in_planes == out_planes
-        if not self.disable_conv:
-            self.conv1 = nn.Conv1d(in_planes, out_planes, kernel_size=1, stride=1,
-                                   padding=0, bias=False)
-
-    def forward(self, x):
-        if self.disable_conv:
-            return self.relu(x)
-        else:
-            return self.conv1(self.relu(x))
 
 class AdpWaveletBlock(nn.Module):
     # def __init__(self, in_channels, kernel_size, share_weights, simple_lifting, regu_details, regu_approx):
@@ -100,7 +119,7 @@ class AdpWaveletBlock(nn.Module):
         d = self.norm_d(d)
         
         return x, r, d
-    
+
 class InverseAdpWaveletBlock(nn.Module):
     # def __init__(self, in_channels, kernel_size, share_weights, simple_lifting):
     def __init__(self, configs, input_size):
@@ -110,59 +129,105 @@ class InverseAdpWaveletBlock(nn.Module):
     def forward(self, c, d):
         reconstructed = self.inverse_wavelet(c, d)
         return reconstructed
+
+class ClusteredLinear(nn.Module):
+    def __init__(self, n_clusters, enc_in, seq_len, pred_len):
+        super().__init__()
+        self.n_clusters = n_clusters
+        self.enc_in = enc_in
+        
+        # Define a linear layer for each cluster using ModuleDict
+        self.linear_layers = nn.ModuleDict({
+            str(cluster_id): nn.Linear(seq_len, pred_len) for cluster_id in range(n_clusters)
+        })
+        
+    def forward(self, x, clusters):
+        output = []
+        assert self.enc_in == len(clusters)
+        for channel in range(self.enc_in):
+            cluster_id = str(clusters[channel].item())
+            channel_data = x[:, channel, :].unsqueeze(1)  # Reshape to keep the channel dimension
+            transformed_channel = self.linear_layers[cluster_id](channel_data)
+            output.append(transformed_channel)
+        output = torch.concat(output, dim=1)
+        
+        # unique_indices, inverse_indices = torch.unique(clusters, return_inverse=True, sorted=True)
+        # index_positions = [(clusters == index).nonzero(as_tuple=True)[0] for index in unique_indices]
+        # output = [linear_layer(x[:, positions, :]) for positions, linear_layer in zip(index_positions, self.linear_layers)]
+        # output = torch.cat(output, dim=1)
+        # output = output[:, inverse_indices, :]
+
+        return output
     
 class Model(nn.Module):
-    # def __init__(self, input_size=1000, input_channels=1, seasonal_embed_channels=16,
-    #              number_levels=4, kernel_size=4,
-    #              share_weights=False, simple_lifting=False,
-    #              regu_details=0.01, regu_approx=0.01, K=512):
+    """
+    Paper link: https://arxiv.org/abs/2310.06625
+    """
+
     def __init__(self, configs):
         super(Model, self).__init__()
         self.task_name = configs.task_name
         self.seq_len = configs.seq_len
+        if self.task_name == 'super_resolution':
+            self.seq_len = self.seq_len // configs.sr_ratio
         self.pred_len = configs.pred_len
-        self.number_levels = configs.lifting_levels
-        self.nb_channels_in = configs.enc_in
-
-        self.series_decomp = series_decomp()
-        self.seasonal_linear = nn.Linear(self.seq_len, self.pred_len)
-        self.trend_linear = nn.Linear(self.seq_len, self.pred_len)
+        self.output_attention = configs.output_attention
+        self.kmeans = KMeans(n_clusters=configs.n_clusters)
+        self.series_decomp = series_decomp(imputation = self.task_name=='imputation')
+        self.rev_seasonal = RevIN(configs.enc_in)
+        self.rev_trend = RevIN(configs.enc_in)
+        # self.trend_linear = nn.Linear(self.seq_len, self.pred_len)
+        self.trend_linear = ClusteredLinear(configs.n_clusters, configs.enc_in, self.seq_len, configs.pred_len)
+        # Embedding
         
-        self.seasonal_linear.weight = nn.Parameter(
-            (1 / self.seq_len) * torch.ones([self.pred_len, self.seq_len]))
-        self.trend_linear.weight = nn.Parameter(
-            (1 / self.seq_len) * torch.ones([self.pred_len, self.seq_len]))
+        self.enc_embedding = DataEmbedding_inverted(self.seq_len // (2 ** configs.lifting_levels), configs.d_model, configs.embed, configs.freq,
+                                                    configs.dropout)
         
-        # Construct the levels recursively (encoder)
+         # Construct the levels recursively (encoder)
         self.encoder_levels = nn.ModuleList()
         self.linear_levels = nn.ModuleList()
         self.coef_linear_levels = nn.ModuleList()
-        in_planes = self.nb_channels_in
-        input_size = configs.seq_len
+        self.coef_dec_levels = nn.ModuleList()
+        in_planes = configs.enc_in
+        input_size = self.seq_len
+        
+        if self.task_name == "super_resolution":
+            expand_ratio = configs.sr_ratio
+        else:
+            expand_ratio = 1
+        
         for i in range(configs.lifting_levels):
             self.encoder_levels.add_module(
                 'encoder_level_'+str(i),
                 AdpWaveletBlock(configs, input_size)
             )
             in_planes *= 1
-            input_size = input_size // 2
+            input_size = input_size // 2 
             self.linear_levels.add_module(
                 'linear_level_'+str(i),
                 nn.Sequential(
-                    nn.Linear(input_size, input_size),
-                    # nn.GELU()
+                    nn.Linear(input_size, input_size * expand_ratio),
+                    # nn.Tanh()
                 )
             )
             self.coef_linear_levels.add_module(
                 'linear_level_'+str(i),
                 nn.Sequential(
-                    nn.Linear(input_size, input_size),
-                    # nn.GELU()
+                    nn.Linear(input_size, input_size * expand_ratio),
+                    # nn.Tanh()
                 )
             )
-                    
+            self.coef_dec_levels.add_module(
+                'linear_level_'+str(i),
+                nn.Sequential(
+                    nn.Linear(input_size, input_size * expand_ratio),
+                    # nn.Tanh()
+                )
+            )
 
         self.input_size = input_size
+        # self.inner_embedding = nn.Linear(c_in, d_model)
+        # self.inner_dropout = nn.Dropout(p=dropout)
         
         # Construct the levels recursively (decoder)
         self.decoder_levels = nn.ModuleList()
@@ -175,61 +240,276 @@ class Model(nn.Module):
             in_planes //= 1
             input_size *= 2
         
-    def forecast(self, x, x_mark_enc, x_dec, x_mark_dec, mask=None):
-        x = x.permute(0,2,1)
-        x, moving_mean = self.series_decomp(x)
-        _, N, L = x.shape
-        
-        means = x.mean(2, keepdim=True).detach()
-        x = x - means
-        stdev = torch.sqrt(
-            torch.var(x, dim=2, keepdim=True, unbiased=False) + 1e-5)
-        x /= stdev
-                
-        means_moving_avg = moving_mean.mean(2, keepdim=True).detach()
-        moving_mean = moving_mean - means_moving_avg
-        stdev_moving_avg = torch.sqrt(
-            torch.var(moving_mean, dim=2, keepdim=True, unbiased=False) + 1e-5)
-        moving_mean /= stdev_moving_avg
-        
-        encoded_coefficients = []
-        rs = []
-        # Encoding
-        level = 0
-        for l, l_linear in zip(self.encoder_levels, self.linear_levels):
-            # print("Level", level, "x_shape:", x.shape)
-            x, r, details = l(x)
-            # print("The size of x is", x.size(), "and the size of details is", details.size(), l_linear)
-            # x = l_linear(x)
-            encoded_coefficients.append(details)
-            rs += [r]
-            level += 1
-        
-        # Decoding
-        for dec, l_linear, c_linear in zip(self.decoder_levels, self.linear_levels[::-1], self.coef_linear_levels[::-1]):
-            details = encoded_coefficients.pop()
-            x = l_linear(x)
-            details = c_linear(details)
-            x = dec(x, details)
-            
-        moving_mean_out = self.trend_linear(moving_mean)
-        x = self.seasonal_linear(x)
-        x = x * (stdev[:, :, 0].unsqueeze(2).repeat(1, 1, L))
-        x = x + (means[:, :, 0].unsqueeze(2).repeat(1, 1, L))
-        moving_mean_out = moving_mean_out * (stdev_moving_avg[:, :, 0].unsqueeze(2).repeat(1, 1, L))
-        moving_mean_out = moving_mean_out + (means_moving_avg[:, :, 0].unsqueeze(2).repeat(1, 1, L))
-        
-        x = x + moving_mean_out
-        
-        return x
-    
-    def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
+        if self.task_name == "super_resolution":
+            self.lowrank_projection = nn.Linear(configs.d_model, self.pred_len // (2 ** configs.lifting_levels), bias=True)
+        else:
+            self.lowrank_projection = nn.Linear(configs.d_model, self.seq_len // (2 ** configs.lifting_levels), bias=True)
+
+        # Encoder
+        self.encoder = Encoder(
+            [
+                EncoderLayer(
+                    AttentionLayer(
+                        FullAttention(False, configs.factor, attention_dropout=configs.dropout,
+                                      output_attention=configs.output_attention), configs.d_model, configs.n_heads),
+                    configs.d_model,
+                    configs.d_ff,
+                    dropout=configs.dropout,
+                    activation=configs.activation
+                ) for l in range(configs.e_layers)
+            ],
+            norm_layer=torch.nn.LayerNorm(configs.d_model)
+        )
+        # Decoder
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
-            dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec)
-            return dec_out.permute(0, 2, 1)  # [B, L, D]
+            self.projection = nn.Linear(self.seq_len, configs.pred_len, bias=True)
         if self.task_name == 'imputation':
-            dec_out = self.imputation(
-                x_enc, x_mark_enc, x_dec, x_mark_dec, mask)
+            self.projection = nn.Linear(self.seq_len, self.seq_len, bias=True)
+        if self.task_name == 'anomaly_detection':
+            self.projection = nn.Linear(self.seq_len, self.seq_len, bias=True)
+        if self.task_name == 'super_resolution':
+            self.projection = nn.Linear(configs.pred_len, configs.pred_len, bias=True)
+
+        self.register_buffer('clusters', None)
+
+    def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec, clusters):
+        x, moving_mean = self.series_decomp(x_enc.permute(0,2,1))
+        moving_mean = moving_mean.permute(0,2,1)
+        # Normalization from Non-stationary Transformer
+        x_enc = x.permute(0,2,1)
+        means = x_enc.mean(1, keepdim=True).detach()
+        x_enc = x_enc - means
+        stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        x_enc /= stdev
+        _, _, N = x_enc.shape
+
+        moving_mean = self.rev_trend(moving_mean, 'norm')
+        # means_moving_avg = moving_mean.mean(1, keepdim=True).detach()
+        # moving_mean = moving_mean - means_moving_avg
+        # stdev_moving_avg = torch.sqrt(torch.var(moving_mean, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        # moving_mean /= stdev_moving_avg
+
+        x_enc = x_enc.permute(0,2,1)
+        encoded_coefficients = []
+        x_embedding_levels = []
+        coef_embedding_levels = []
+        # Encoding
+        for l, l_linear, c_linear in zip(self.encoder_levels, self.linear_levels, self.coef_linear_levels):
+            # print("Level", level, "x_shape:", x.shape)
+            x_enc, r, details = l(x_enc)
+            # print("The size of x is", x.size(), "and the size of details is", details.size(), l_linear)
+            encoded_coefficients.append(details)
+            coef_embedding_levels.append(c_linear(details))
+            x_embedding_levels.append(l_linear(x_enc))
+        # Embedding
+        x_enc = x_enc.permute(0,2,1)
+        enc_out = self.enc_embedding(x_enc, None)
+        enc_out, attns = self.encoder(enc_out, attn_mask=None)
+        x_dec = self.lowrank_projection(enc_out)
+        # Decoding
+        for dec, x_emb_level, coef_emb_level, c_linear in zip(self.decoder_levels, x_embedding_levels[::-1], coef_embedding_levels[::-1], self.coef_dec_levels[::-1]):
+            details = encoded_coefficients.pop()
+            # x_dec = l_linear(x_dec)
+            # details = c_linear(details)
+            details = coef_emb_level + c_linear(details)
+            x_dec = x_dec + x_emb_level
+            x_dec = dec(x_dec, details)
+        dec_out = self.projection(x_dec).permute(0, 2, 1)[:, :, :N]
+        # De-Normalization from Non-stationary Transformer
+        dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        dec_out = dec_out + (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        
+        moving_mean_out = self.trend_linear(moving_mean.permute(0,2,1), self.clusters).permute(0,2,1)
+        # moving_mean_out = moving_mean_out * (stdev_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        # moving_mean_out = moving_mean_out + (means_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        moving_mean_out = self.rev_trend(moving_mean_out, 'denorm')
+        
+        dec_out = dec_out + moving_mean_out
+        
+        return dec_out
+
+    def imputation(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask):
+        x, moving_mean = self.series_decomp(x_enc.permute(0,2,1))
+        moving_mean = moving_mean.permute(0,2,1)
+        # Normalization from Non-stationary Transformer
+        x_enc = x.permute(0,2,1)
+        means = x_enc.mean(1, keepdim=True).detach()
+        x_enc = x_enc - means
+        stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        x_enc /= stdev
+        _, _, N = x_enc.shape
+
+        moving_mean = self.rev_trend(moving_mean, 'norm')
+        # means_moving_avg = moving_mean.mean(1, keepdim=True).detach()
+        # moving_mean = moving_mean - means_moving_avg
+        # stdev_moving_avg = torch.sqrt(torch.var(moving_mean, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        # moving_mean /= stdev_moving_avg
+
+        x_enc = x_enc.permute(0,2,1)
+        encoded_coefficients = []
+        x_embedding_levels = []
+        coef_embedding_levels = []
+        # Encoding
+        for l, l_linear, c_linear in zip(self.encoder_levels, self.linear_levels, self.coef_linear_levels):
+            # print("Level", level, "x_shape:", x.shape)
+            x_enc, r, details = l(x_enc)
+            # print("The size of x is", x.size(), "and the size of details is", details.size(), l_linear)
+            encoded_coefficients.append(details)
+            coef_embedding_levels.append(c_linear(details))
+            x_embedding_levels.append(l_linear(x_enc))
+        # Embedding
+        x_enc = x_enc.permute(0,2,1)
+        enc_out = self.enc_embedding(x_enc, None)
+        enc_out, attns = self.encoder(enc_out, attn_mask=None)
+        x_dec = self.lowrank_projection(enc_out)
+        # Decoding
+        for dec, x_emb_level, coef_emb_level, c_linear in zip(self.decoder_levels, x_embedding_levels[::-1], coef_embedding_levels[::-1], self.coef_dec_levels[::-1]):
+            details = encoded_coefficients.pop()
+            # x_dec = l_linear(x_dec)
+            # details = c_linear(details)
+            details = coef_emb_level + c_linear(details)
+            x_dec = x_dec + x_emb_level
+            x_dec = dec(x_dec, details)
+        dec_out = self.projection(x_dec).permute(0, 2, 1)[:, :, :N]
+        # De-Normalization from Non-stationary Transformer
+        dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        dec_out = dec_out + (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        
+        moving_mean_out = self.trend_linear(moving_mean.permute(0,2,1), self.clusters).permute(0,2,1)
+        # moving_mean_out = moving_mean_out * (stdev_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        # moving_mean_out = moving_mean_out + (means_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        moving_mean_out = self.rev_trend(moving_mean_out, 'denorm')
+        
+        dec_out = dec_out + moving_mean_out
+        
+        return dec_out
+
+    def anomaly_detection(self, x_enc):
+        x, moving_mean = self.series_decomp(x_enc.permute(0,2,1))
+        moving_mean = moving_mean.permute(0,2,1)
+        # Normalization from Non-stationary Transformer
+        x_enc = x.permute(0,2,1)
+        means = x_enc.mean(1, keepdim=True).detach()
+        x_enc = x_enc - means
+        stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        x_enc /= stdev
+        _, _, N = x_enc.shape
+
+        moving_mean = self.rev_trend(moving_mean, 'norm')
+        # means_moving_avg = moving_mean.mean(1, keepdim=True).detach()
+        # moving_mean = moving_mean - means_moving_avg
+        # stdev_moving_avg = torch.sqrt(torch.var(moving_mean, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        # moving_mean /= stdev_moving_avg
+
+        x_enc = x_enc.permute(0,2,1)
+        encoded_coefficients = []
+        x_embedding_levels = []
+        coef_embedding_levels = []
+        # Encoding
+        for l, l_linear, c_linear in zip(self.encoder_levels, self.linear_levels, self.coef_linear_levels):
+            # print("Level", level, "x_shape:", x.shape)
+            x_enc, r, details = l(x_enc)
+            # print("The size of x is", x.size(), "and the size of details is", details.size(), l_linear)
+            encoded_coefficients.append(details)
+            coef_embedding_levels.append(c_linear(details))
+            x_embedding_levels.append(l_linear(x_enc))
+        # Embedding
+        x_enc = x_enc.permute(0,2,1)
+        enc_out = self.enc_embedding(x_enc, None)
+        enc_out, attns = self.encoder(enc_out, attn_mask=None)
+        x_dec = self.lowrank_projection(enc_out)
+        # Decoding
+        for dec, x_emb_level, coef_emb_level, c_linear in zip(self.decoder_levels, x_embedding_levels[::-1], coef_embedding_levels[::-1], self.coef_dec_levels[::-1]):
+            details = encoded_coefficients.pop()
+            # x_dec = l_linear(x_dec)
+            # details = c_linear(details)
+            details = coef_emb_level + c_linear(details)
+            x_dec = x_dec + x_emb_level
+            x_dec = dec(x_dec, details)
+        dec_out = self.projection(x_dec).permute(0, 2, 1)[:, :, :N]
+        # De-Normalization from Non-stationary Transformer
+        dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        dec_out = dec_out + (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        
+        moving_mean_out = self.trend_linear(moving_mean.permute(0,2,1), self.clusters).permute(0,2,1)
+        # moving_mean_out = moving_mean_out * (stdev_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        # moving_mean_out = moving_mean_out + (means_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        moving_mean_out = self.rev_trend(moving_mean_out, 'denorm')
+        
+        dec_out = dec_out + moving_mean_out
+        
+        return dec_out
+
+    def super_resolution(self, x_enc):
+        x, moving_mean = self.series_decomp(x_enc.permute(0,2,1))
+        moving_mean = moving_mean.permute(0,2,1)
+        # Normalization from Non-stationary Transformer
+        x_enc = x.permute(0,2,1)
+        means = x_enc.mean(1, keepdim=True).detach()
+        x_enc = x_enc - means
+        stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        x_enc /= stdev
+        _, _, N = x_enc.shape
+        
+        moving_mean = self.rev_trend(moving_mean, 'norm')
+        # means_moving_avg = moving_mean.mean(1, keepdim=True).detach()
+        # moving_mean = moving_mean - means_moving_avg
+        # stdev_moving_avg = torch.sqrt(torch.var(moving_mean, dim=1, keepdim=True, unbiased=False) + 1e-5)
+        # moving_mean /= stdev_moving_avg
+
+        x_enc = x_enc.permute(0,2,1)
+        encoded_coefficients = []
+        x_embedding_levels = []
+        coef_embedding_levels = []
+        # Encoding
+        for l, l_linear, c_linear in zip(self.encoder_levels, self.linear_levels, self.coef_linear_levels):
+            x_enc, r, details = l(x_enc)
+            # print("The size of x is", x_enc.size(), "and the size of details is", details.size(), l_linear)
+            encoded_coefficients.append(details)
+            coef_embedding_levels.append(c_linear(details))
+            x_embedding_levels.append(l_linear(x_enc))
+        # Embedding
+        x_enc = x_enc.permute(0,2,1)
+        enc_out = self.enc_embedding(x_enc, None)
+        enc_out, attns = self.encoder(enc_out, attn_mask=None)
+        x_dec = self.lowrank_projection(enc_out)
+        # Decoding
+        for dec, x_emb_level, coef_emb_level, c_linear in zip(self.decoder_levels, x_embedding_levels[::-1], coef_embedding_levels[::-1], self.coef_dec_levels[::-1]):
+            details = encoded_coefficients.pop()
+            # x_dec = l_linear(x_dec)
+            # details = c_linear(details)
+            details = coef_emb_level + c_linear(details)
+            x_dec = x_dec + x_emb_level
+            x_dec = dec(x_dec, details)
+        dec_out = self.projection(x_dec).permute(0, 2, 1)[:, :, :N]
+        # De-Normalization from Non-stationary Transformer
+        dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        dec_out = dec_out + (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        
+        moving_mean_out = self.trend_linear(moving_mean.permute(0,2,1), self.clusters).permute(0,2,1)
+        # moving_mean_out = moving_mean_out * (stdev_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        # moving_mean_out = moving_mean_out + (means_moving_avg[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+        moving_mean_out = self.rev_trend(moving_mean_out, 'denorm')
+        
+        dec_out = dec_out + moving_mean_out
+        
+        return dec_out
+
+    def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
+        B, L, C = x_enc.shape
+        # print(x_enc.shape)
+        x_cluster = x_enc.permute(2,0,1).view(C, B * L)
+        if self.clusters is None:
+            clusters = self.kmeans.fit_predict(x_cluster)
+            self.clusters = clusters
+        else:
+            clusters = self.clusters
+        # print(clusters)
+        if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
+            dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec, clusters)
+            return dec_out[:, -self.pred_len:, :]  # [B, L, D]
+        if self.task_name == 'imputation':
+            dec_out = self.imputation(x_enc, x_mark_enc, x_dec, x_mark_dec, mask)
             return dec_out  # [B, L, D]
         if self.task_name == 'anomaly_detection':
             dec_out = self.anomaly_detection(x_enc)
@@ -237,4 +517,7 @@ class Model(nn.Module):
         if self.task_name == 'classification':
             dec_out = self.classification(x_enc, x_mark_enc)
             return dec_out  # [B, N]
+        if self.task_name == 'super_resolution':
+            dec_out = self.super_resolution(x_enc)
+            return dec_out
         return None
