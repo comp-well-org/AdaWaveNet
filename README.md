@@ -1,6 +1,17 @@
-# TimesNet
+# AdaWaveNet
 
-TimesNet is a comprehensive framework for time series forecasting, imputation, classification, anomaly detection, and super-resolution tasks. It leverages various state-of-the-art models to handle different time series tasks efficiently.
+AdaWaveNet is a comprehensive framework for time series forecasting, imputation, and super-resolution tasks. 
+
+Please refer to the paper for more details.
+
+```
+@article{yu2024adawavenet,
+  title={AdaWaveNet: Adaptive Wavelet Network for Time Series Analysis},
+  author={Yu, Han and Guo, Peikun and Sano, Akane},
+  journal={arXiv preprint arXiv:2405.11124},
+  year={2024}
+}
+```
 
 ## Features
 
@@ -24,7 +35,7 @@ python -u run.py \
 --root_path ./dataset/weather/ \
 --data_path weather.csv \
 --model_id weather_96_96 \
---model LSWaveNet \
+--model AdaWaveNet \
 --data custom \
 --features M \
 --seq_len 96 \
@@ -61,26 +72,6 @@ The `run.py` script accepts various arguments to configure the experiment:
 
 For a full list of arguments, refer to the `run.py` script.
 
-## Models
-
-The framework includes implementations of various models, such as:
-
-- **Autoformer**: A model for long-term series forecasting.
-- **LSWaveNet**: A model for long-term forecasting with lifting scheme.
-- **Reformer**: A model with O(LlogL) complexity for efficient processing.
-
-## Refernece
-
-Please refer to the paper for more details.
-
-```
-@article{yu2024adawavenet,
-  title={AdaWaveNet: Adaptive Wavelet Network for Time Series Analysis},
-  author={Yu, Han and Guo, Peikun and Sano, Akane},
-  journal={arXiv preprint arXiv:2405.11124},
-  year={2024}
-}
-```
 
 ## Acknowledgments
 
