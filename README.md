@@ -4,6 +4,8 @@ AdaWaveNet is a comprehensive framework for time series forecasting, imputation,
 
 Please refer to the paper for more details.
 
+https://openreview.net/forum?id=m4bE9Y9FlX
+
 ```
 @article{yu2025adawavenet,
   title={AdaWaveNet: Adaptive Wavelet Network for Time Series Analysis},
