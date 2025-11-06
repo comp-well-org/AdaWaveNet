@@ -78,3 +78,7 @@ For a full list of arguments, refer to the `run.py` script.
 ## Acknowledgments
 
 This project is based on the Time-Series-Library Repository <https://github.com/thuml/Time-Series-Library> and other state-of-the-art time series models.
+
+## License
+AdaWaveNet is released under the GPL 3.0. See [LICENSE](https://github.com/comp-well-org/AdaWaveNet/blob/main/LICENSE.txt) for details.
+
